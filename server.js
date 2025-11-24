@@ -73,6 +73,11 @@ io.on('connection', async (socket) => {
     }
   });
 
+  // Handle ping for latency check
+  socket.on('ping', () => {
+    socket.emit('pong');
+  });
+
   // Handle block removal
   socket.on('blockRemove', async (data) => {
     try {
