@@ -1,0 +1,15 @@
+{
+  "name": "minecraft-lobby",
+  "version": "1.0.0",
+  "description": "3D Multiplayer Lobby",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node init_db.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2",
+    "pg": "^8.11.3"
+  }
+}

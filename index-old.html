@@ -330,22 +330,13 @@
         </div>
 
         <div id="click-to-start">
-            <div>Enter Name & Start</div>
-            <input type="text" id="player-name-input" placeholder="Enter your name"
-                style="margin-top: 15px; padding: 10px; font-size: 16px; border-radius: 5px; border: none; text-align: center;">
-            <div id="start-btn"
-                style="margin-top: 15px; background: #55ff55; color: #000; padding: 10px 20px; border-radius: 5px; font-weight: bold; font-size: 16px;">
-                JOIN GAME</div>
-            <div id="join-error" style="color: #ff5555; font-size: 14px; margin-top: 10px; display: none;"></div>
-            <div style="font-size: 14px; margin-top: 10px; opacity: 0.7;">Click to capture mouse after joining</div>
+            <div>Click to Start</div>
+            <div style="font-size: 14px; margin-top: 10px; opacity: 0.7;">Click anywhere to begin</div>
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        const socket = io();
-
         // Scene setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb);
@@ -562,131 +553,69 @@
             leftLeg.castShadow = true;
             player.add(leftLeg);
 
+            player.visible = false; // Hidden in first-person view
             return player;
         }
 
         const playerModel = createPlayerModel();
-        playerModel.visible = false; // Hide local player model
         scene.add(playerModel);
 
-        // Remote players
-        const remotePlayers = {};
+        // Save/Load system for placed blocks
+        function saveBlocks() {
+            const blockData = placedBlocks.map(block => ({
+                x: block.position.x,
+                y: block.position.y,
+                z: block.position.z,
+                type: block.userData.blockType || 0
+            }));
+            localStorage.setItem('minecraftLobbyBlocks', JSON.stringify(blockData));
 
-        function createNameLabel(name) {
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.width = 256;
-            canvas.height = 64;
-
-            context.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            context.fillRect(0, 0, 256, 64);
-
-            context.font = 'bold 32px Arial';
-            context.fillStyle = 'white';
-            context.textAlign = 'center';
-            context.textBaseline = 'middle';
-            context.fillText(name, 128, 32);
-
-            const texture = new THREE.CanvasTexture(canvas);
-            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-            const sprite = new THREE.Sprite(spriteMaterial);
-            sprite.scale.set(2, 0.5, 1);
-            sprite.position.y = 1.5;
-            return sprite;
+            // Show save indicator
+            const indicator = document.getElementById('save-indicator');
+            indicator.classList.add('show');
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 2000);
         }
 
-        function addRemotePlayer(id, data) {
-            const player = createPlayerModel();
-            player.position.set(data.x, data.y, data.z);
-            player.rotation.y = data.rotation || 0;
-
-            if (data.name) {
-                const label = createNameLabel(data.name);
-                player.add(label);
-            }
-
-            scene.add(player);
-            remotePlayers[id] = player;
-        }
-
-        function removeRemotePlayer(id) {
-            if (remotePlayers[id]) {
-                scene.remove(remotePlayers[id]);
-                delete remotePlayers[id];
-            }
-        }
-
-        function updateRemotePlayer(id, data) {
-            if (remotePlayers[id]) {
-                remotePlayers[id].position.set(data.x, data.y, data.z);
-                remotePlayers[id].rotation.y = data.rotation || 0;
-            }
-        }
-
-        // Socket events
-        socket.on('currentPlayers', (players) => {
-            Object.keys(players).forEach(id => {
-                if (id !== socket.id) {
-                    addRemotePlayer(id, players[id]);
+        function loadBlocks() {
+            const saved = localStorage.getItem('minecraftLobbyBlocks') || [];
+            if (saved) {
+                try {
+                    const blockData = JSON.parse(saved);
+                    blockData.forEach(data => {
+                        const blockType = data.type || 0;
+                        const block = new THREE.Mesh(
+                            new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+                            blockMaterials[blockType]
+                        );
+                        block.position.set(data.x, data.y, data.z);
+                        block.castShadow = true;
+                        block.receiveShadow = true;
+                        block.userData.isPlacedBlock = true;
+                        block.userData.blockType = blockType;
+                        scene.add(block);
+                        placedBlocks.push(block);
+                    });
+                    console.log(`Loaded ${blockData.length} blocks from save`);
+                } catch (e) {
+                    console.error('Error loading blocks:', e);
                 }
-            });
-        });
-
-        socket.on('newPlayer', (data) => {
-            addRemotePlayer(data.id, data);
-        });
-
-        socket.on('playerMoved', (data) => {
-            updateRemotePlayer(data.id, data);
-        });
-
-        socket.on('playerDisconnected', (id) => {
-            removeRemotePlayer(id);
-        });
-
-        socket.on('initialBlocks', (blocks) => {
-            blocks.forEach(data => {
-                const blockType = data.type || 0;
-                const block = new THREE.Mesh(
-                    new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-                    blockMaterials[blockType]
-                );
-                block.position.set(data.x, data.y, data.z);
-                block.castShadow = true;
-                block.receiveShadow = true;
-                block.userData.isPlacedBlock = true;
-                block.userData.blockType = blockType;
-                scene.add(block);
-                placedBlocks.push(block);
-            });
-        });
-
-        socket.on('blockPlaced', (data) => {
-            const blockType = data.type || 0;
-            const block = new THREE.Mesh(
-                new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-                blockMaterials[blockType]
-            );
-            block.position.set(data.x, data.y, data.z);
-            block.castShadow = true;
-            block.receiveShadow = true;
-            block.userData.isPlacedBlock = true;
-            block.userData.blockType = blockType;
-            scene.add(block);
-            placedBlocks.push(block);
-        });
-
-        socket.on('blockRemoved', (data) => {
-            const index = placedBlocks.findIndex(b =>
-                Math.abs(b.position.x - data.x) < 0.1 &&
-                Math.abs(b.position.y - data.y) < 0.1 &&
-                Math.abs(b.position.z - data.z) < 0.1
-            );
-            if (index !== -1) {
-                scene.remove(placedBlocks[index]);
-                placedBlocks.splice(index, 1);
             }
-        });
+        }
+
+        function clearAllBlocks() {
+            // Remove all blocks from scene
+            placedBlocks.forEach(block => {
+                scene.remove(block);
+            });
+            placedBlocks.length = 0;
+
+            // Clear from localStorage
+            localStorage.removeItem('minecraftLobbyBlocks');
+
+            console.log('All blocks cleared');
+        }
 
         // Create ground
         function createGround() {
@@ -792,6 +721,9 @@
         const portal = createPortal();
         createDecoration();
 
+        // Load saved blocks
+        loadBlocks();
+
         // Raycaster for block placement
         const raycaster = new THREE.Raycaster();
         raycaster.far = 10;
@@ -839,46 +771,16 @@
             camera.rotation.x = pitch;
         });
 
-        // Pointer lock and Join Logic
-        const startScreen = document.getElementById('click-to-start');
-        const nameInput = document.getElementById('player-name-input');
-        const joinBtn = document.getElementById('start-btn');
-        const errorMsg = document.getElementById('join-error');
-        let isJoined = false;
-        let myPlayerName = "";
-
-        joinBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent pointer lock immediately
-            const name = nameInput.value.trim();
-            if (name) {
-                myPlayerName = name;
-                socket.emit('joinGame', name);
-            } else {
-                errorMsg.textContent = "Please enter a name";
-                errorMsg.style.display = 'block';
-            }
-        });
-
-        socket.on('joinSuccess', (data) => {
-            isJoined = true;
-            startScreen.style.display = 'none';
+        // Pointer lock
+        const startBtn = document.getElementById('click-to-start');
+        startBtn.addEventListener('click', () => {
             renderer.domElement.requestPointerLock();
-        });
-
-        socket.on('joinError', (msg) => {
-            errorMsg.textContent = msg;
-            errorMsg.style.display = 'block';
         });
 
         document.addEventListener('pointerlockchange', () => {
             isPointerLocked = document.pointerLockElement === renderer.domElement;
-            if (!isPointerLocked && isJoined) {
-                // Show pause menu or similar? For now just show start screen again but different text
-                startScreen.style.display = 'flex';
-                startScreen.innerHTML = '<div>Click to Resume</div>';
-                startScreen.onclick = () => renderer.domElement.requestPointerLock();
-            } else if (isPointerLocked) {
-                startScreen.style.display = 'none';
+            if (isPointerLocked) {
+                startBtn.style.display = 'none';
             }
         });
 
@@ -900,23 +802,27 @@
                 updateHotbarDisplay();
             }
 
-            // Toggle camera view with T
+            // Toggle camera view
             if (e.key.toLowerCase() === 't') {
                 cameraView = (cameraView + 1) % 3;
 
-                if (cameraView === 0) {
-                    // First person
-                    playerModel.visible = false;
-                } else {
-                    // Third person
-                    playerModel.visible = true;
+                // Show/hide player model based on view
+                playerModel.visible = cameraView !== 0;
+
+                // Update crosshair visibility
+                document.getElementById('crosshair').style.display = cameraView === 0 ? 'block' : 'none';
+            }
+
+            // Clear all blocks
+            if (e.key.toLowerCase() === 'c') {
+                if (confirm('Are you sure you want to clear all placed blocks? This cannot be undone.')) {
+                    clearAllBlocks();
                 }
             }
 
-            // Clear all blocks with C
-            if (e.key.toLowerCase() === 'c') {
-                // Not implemented for multiplayer yet or admin only
-                // clearAllBlocks(); 
+            // Interact with portal
+            if (e.key.toLowerCase() === 'e' && nearPortal) {
+                alert('🎮 Connecting to Minecraft Server...\n\nIn a real implementation, this would:\n• Connect to the actual Minecraft server\n• Transfer player data\n• Launch the game client');
             }
         });
 
@@ -924,70 +830,90 @@
             keys[e.key.toLowerCase()] = false;
         });
 
-        // Mouse click for block interaction
+        // Mouse click for block placement/removal
         document.addEventListener('mousedown', (e) => {
             if (!isPointerLocked) return;
 
-            if (e.button === 0) { // Left click: Place block
-                if (highlightBox.visible) {
-                    const x = highlightBox.position.x;
-                    const y = highlightBox.position.y;
-                    const z = highlightBox.position.z;
+            e.preventDefault();
 
-                    // Check if player is inside the block
-                    const playerPos = camera.position.clone();
-                    if (cameraView !== 0) playerPos.copy(playerModel.position);
+            // Raycast from camera
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const allBlocks = [...scene.children].filter(obj =>
+                obj.geometry instanceof THREE.BoxGeometry &&
+                obj !== highlightBox &&
+                !obj.userData.isPortal &&
+                !playerModel.children.includes(obj)
+            );
+            const intersects = raycaster.intersectObjects(allBlocks);
 
-                    const dx = Math.abs(playerPos.x - x);
-                    const dy = Math.abs(playerPos.y - y);
-                    const dz = Math.abs(playerPos.z - z);
+            if (intersects.length > 0) {
+                const intersect = intersects[0];
 
-                    if (dx < 1.5 && dy < 2 && dz < 1.5) return; // Don't place inside player
+                // Left click - Place block
+                if (e.button === 0) {
+                    // Calculate position for new block
+                    const normal = intersect.face.normal;
+                    const newPos = intersect.object.position.clone()
+                        .add(normal.multiplyScalar(blockSize));
 
-                    const blockData = {
-                        x: x,
-                        y: y,
-                        z: z,
-                        type: selectedBlockType
-                    };
+                    // Snap to grid
+                    newPos.x = Math.round(newPos.x / blockSize) * blockSize;
+                    newPos.y = Math.round(newPos.y / blockSize) * blockSize;
+                    newPos.z = Math.round(newPos.z / blockSize) * blockSize;
 
-                    // Optimistic update
-                    const block = new THREE.Mesh(
-                        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-                        blockMaterials[selectedBlockType]
+                    // Check if position is already occupied
+                    const occupied = placedBlocks.some(block =>
+                        block.position.distanceTo(newPos) < 0.1
                     );
-                    block.position.set(x, y, z);
-                    block.castShadow = true;
-                    block.receiveShadow = true;
-                    block.userData.isPlacedBlock = true;
-                    block.userData.blockType = selectedBlockType;
-                    scene.add(block);
-                    placedBlocks.push(block);
 
-                    socket.emit('blockPlace', blockData);
+                    // Don't place block where player is standing
+                    const playerDist = camera.position.distanceTo(newPos);
+
+                    if (!occupied && playerDist > 2) {
+                        const newBlock = new THREE.Mesh(
+                            new THREE.BoxGeometry(blockSize, blockSize, blockSize),
+                            blockMaterials[selectedBlockType]
+                        );
+                        newBlock.position.copy(newPos);
+                        newBlock.castShadow = true;
+                        newBlock.receiveShadow = true;
+                        newBlock.userData.isPlacedBlock = true;
+                        newBlock.userData.blockType = selectedBlockType;
+                        scene.add(newBlock);
+                        placedBlocks.push(newBlock);
+
+                        // Auto-save after placing block
+                        saveBlocks();
+                    }
                 }
-            } else if (e.button === 2) { // Right click: Remove block
-                if (highlightedBlock && highlightedBlock.userData.isPlacedBlock) {
-                    const x = highlightedBlock.position.x;
-                    const y = highlightedBlock.position.y;
-                    const z = highlightedBlock.position.z;
 
-                    // Optimistic update
-                    scene.remove(highlightedBlock);
-                    const index = placedBlocks.indexOf(highlightedBlock);
-                    if (index > -1) placedBlocks.splice(index, 1);
+                // Right click - Remove block (only placed blocks)
+                if (e.button === 2 && intersect.object.userData.isPlacedBlock) {
+                    scene.remove(intersect.object);
+                    const index = placedBlocks.indexOf(intersect.object);
+                    if (index > -1) {
+                        placedBlocks.splice(index, 1);
+                    }
 
-                    socket.emit('blockRemove', { x, y, z });
+                    // Auto-save after removing block
+                    saveBlocks();
                 }
             }
         });
 
-        // Resize handler
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        // Prevent context menu on right click
+        document.addEventListener('contextmenu', (e) => {
+            if (isPointerLocked) e.preventDefault();
         });
+
+        // Check if near portal
+        let nearPortal = false;
+
+        function checkPortalProximity() {
+            const distance = camera.position.distanceTo(portal.position);
+            nearPortal = distance < 8;
+            document.getElementById('interaction-prompt').style.display = nearPortal ? 'block' : 'none';
+        }
 
         // Block collision detection
         function checkBlockCollision(newPos) {
@@ -1030,41 +956,55 @@
             return null;
         }
 
-        // Check if near portal
-        let nearPortal = false;
+        // Update camera position based on view mode
+        function updateCameraView(playerPos, yaw) {
+            if (cameraView === 0) {
+                // First-person view
+                camera.position.copy(playerPos);
+            } else if (cameraView === 1) {
+                // Third-person back view
+                const offset = new THREE.Vector3(
+                    Math.sin(yaw) * cameraDistance,
+                    2,
+                    Math.cos(yaw) * cameraDistance
+                );
+                camera.position.copy(playerPos).add(offset);
+                camera.lookAt(playerPos.x, playerPos.y, playerPos.z);
+            } else if (cameraView === 2) {
+                // Third-person front view
+                const offset = new THREE.Vector3(
+                    -Math.sin(yaw) * cameraDistance,
+                    2,
+                    -Math.cos(yaw) * cameraDistance
+                );
+                camera.position.copy(playerPos).add(offset);
+                camera.lookAt(playerPos.x, playerPos.y, playerPos.z);
+            }
 
-        function checkPortalProximity() {
-            const distance = camera.position.distanceTo(portal.position);
-            nearPortal = distance < 8;
-            document.getElementById('interaction-prompt').style.display = nearPortal ? 'block' : 'none';
+            // Update player model position and rotation
+            playerModel.position.set(playerPos.x, playerPos.y - 1.8, playerPos.z);
+            playerModel.rotation.y = yaw;
         }
 
-        // Store player position for physics
-        const playerPosition = new THREE.Vector3(0, 3, 15);
+        // Store player position for camera tracking
+        let playerPosition = new THREE.Vector3(0, 3, 15);
 
         // Animation loop
         function animate() {
             requestAnimationFrame(animate);
 
-            // Movement logic
             if (isPointerLocked) {
-                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-                const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+                // Movement
+                const moveX = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
+                const moveZ = (keys['s'] ? 1 : 0) - (keys['w'] ? 1 : 0);
 
-                const moveDir = new THREE.Vector3(0, 0, 0);
-
-                if (keys['w']) moveDir.add(forward);
-                if (keys['s']) moveDir.sub(forward);
-                if (keys['d']) moveDir.add(right);
-                if (keys['a']) moveDir.sub(right);
-
-                if (moveDir.length() > 0) {
-                    moveDir.normalize().multiplyScalar(moveSpeed);
-                    velocity.x = moveDir.x;
-                    velocity.z = moveDir.z;
+                if (moveX !== 0 || moveZ !== 0) {
+                    const angle = yaw + Math.atan2(moveX, moveZ);
+                    velocity.x = Math.sin(angle) * moveSpeed;
+                    velocity.z = Math.cos(angle) * moveSpeed;
                 } else {
-                    velocity.x = 0;
-                    velocity.z = 0;
+                    velocity.x *= 0.8;
+                    velocity.z *= 0.8;
                 }
 
                 // Gravity
@@ -1072,295 +1012,103 @@
                     velocity.y -= 0.02;
                 }
 
-                // Apply velocity to temp position
-                const movePos = playerPosition.clone();
+                // Calculate new position based on camera view
+                let movePos;
+                if (cameraView === 0) {
+                    movePos = camera.position.clone();
+                } else {
+                    movePos = playerPosition.clone();
+                }
+
                 movePos.x += velocity.x;
                 movePos.z += velocity.z;
 
                 // Check collision with placed blocks (horizontal)
                 const collision = checkBlockCollision(movePos);
                 if (!collision) {
-                    playerPosition.x = movePos.x;
-                    playerPosition.z = movePos.z;
+                    if (cameraView === 0) {
+                        camera.position.x = movePos.x;
+                        camera.position.z = movePos.z;
+                    } else {
+                        playerPosition.x = movePos.x;
+                        playerPosition.z = movePos.z;
+                    }
                 } else {
                     velocity.x = 0;
                     velocity.z = 0;
                 }
 
-                // Apply vertical velocity
-                playerPosition.y += velocity.y;
+                if (cameraView === 0) {
+                    camera.position.y += velocity.y;
+                    playerPosition.copy(camera.position);
+                } else {
+                    playerPosition.y += velocity.y;
+                }
 
                 // Check if standing on a placed block
-                // We need to temporarily update camera position for checkGroundBlocks to work as it uses camera.position
-                // Or better, update checkGroundBlocks to accept a position. 
-                // Since I can't easily change checkGroundBlocks signature without another edit, 
-                // I will temporarily set camera.position to playerPosition for the check.
-                const originalCamPos = camera.position.clone();
-                camera.position.copy(playerPosition);
-
                 const groundBlock = checkGroundBlocks();
-                camera.position.copy(originalCamPos); // Restore
-
                 if (groundBlock !== null && velocity.y <= 0) {
-                    playerPosition.y = groundBlock + 1.8; // Player height offset
+                    const newY = groundBlock + 1.8;
+                    if (cameraView === 0) {
+                        camera.position.y = newY;
+                    } else {
+                        playerPosition.y = newY;
+                    }
                     velocity.y = 0;
                     isGrounded = true;
-                } else if (playerPosition.y <= 3) { // Ground level
-                    playerPosition.y = 3;
+                } else if ((cameraView === 0 ? camera.position.y : playerPosition.y) <= 3) {
+                    // Ground collision
+                    if (cameraView === 0) {
+                        camera.position.y = 3;
+                    } else {
+                        playerPosition.y = 3;
+                    }
                     velocity.y = 0;
                     isGrounded = true;
                 } else if (velocity.y < 0) {
                     isGrounded = false;
                 }
 
-                // Update player model position
-                playerModel.position.set(playerPosition.x, playerPosition.y - 1.5, playerPosition.z);
-                playerModel.rotation.y = yaw;
+                // No horizontal boundary - free roam!
+                // Optional: Add a soft boundary warning instead
+                const warnDistance = 100;
+                const distFromCenter = Math.sqrt(
+                    playerPosition.x * playerPosition.x +
+                    playerPosition.z * playerPosition.z
+                );
 
-                // Update camera position based on view mode
-                if (cameraView === 0) { // First person
-                    camera.position.copy(playerPosition);
-                } else if (cameraView === 1) { // Third person back
-                    const offset = new THREE.Vector3(0, 2, cameraDistance).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-                    camera.position.copy(playerPosition).add(offset);
-                    camera.lookAt(playerPosition);
-                } else if (cameraView === 2) { // Third person front
-                    const offset = new THREE.Vector3(0, 2, -cameraDistance).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-                    camera.position.copy(playerPosition).add(offset);
-                    camera.lookAt(playerPosition);
-                }
+                // Update coordinates display
+                const displayPos = cameraView === 0 ? camera.position : playerPosition;
+                document.getElementById('coord-x').textContent = Math.round(displayPos.x);
+                document.getElementById('coord-y').textContent = Math.round(displayPos.y);
+                document.getElementById('coord-z').textContent = Math.round(displayPos.z);
+
+                // Update camera view
+                updateCameraView(playerPosition, yaw);
 
                 checkPortalProximity();
 
-                // Send position update to server
-                socket.emit('playerMove', {
-                    x: playerModel.position.x,
-                    y: playerModel.position.y,
-                    z: playerModel.position.z,
-                    rotation: yaw,
-                    name: myPlayerName // Send name
-                });
+                // Highlight block for placement (only in first-person)
+                if (cameraView === 0) {
+                    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+                    const allBlocks = [...scene.children].filter(obj =>
+                        obj.geometry instanceof THREE.BoxGeometry &&
+                        obj !== highlightBox &&
+                        !obj.userData.isPortal &&
+                        !playerModel.children.includes(obj)
+                    );
+                    const intersects = raycaster.intersectObjects(allBlocks);
 
-                // Update coordinates display
-                document.getElementById('coord-x').textContent = Math.round(playerPosition.x);
-                document.getElementById('coord-y').textContent = Math.round(playerPosition.y);
-                document.getElementById('coord-z').textContent = Math.round(playerPosition.z);
-            }
-
-            // Raycasting for block interaction
-            const rayOrigin = cameraView === 0 ? camera.position.clone() : playerPosition.clone().add(new THREE.Vector3(0, 0.5, 0));
-            // In third person, raycast from player head roughly? 
-            // Actually, standard behavior is usually raycast from camera even in third person, 
-            // but for block placement it might be weird. 
-            // Let's stick to camera for raycasting as it's what the user sees.
-
-            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-
-            const intersects = raycaster.intersectObjects(scene.children);
-
-            highlightBox.visible = false;
-            highlightedBlock = null;
-
-            for (let i = 0; i < intersects.length; i++) {
-                // Ignore player model and transparent objects like highlight box
-                if (intersects[i].object === highlightBox ||
-                    intersects[i].object.parent === playerModel ||
-                    intersects[i].object.userData.isPlayer ||
-                    intersects[i].object.userData.isPortal) continue; // Also ignore portal
-
-                const intersect = intersects[i];
-
-                if (intersect.distance < 8) {
-                    // Highlight block we're looking at
-                    highlightedBlock = intersect.object;
-
-                    // Calculate position for new block
-                    const normal = intersect.face.normal;
-                    const pos = intersect.object.position.clone().add(normal.multiplyScalar(blockSize));
-
-                    // Snap to grid
-                    pos.x = Math.round(pos.x / 2) * 2;
-                    pos.y = Math.round(pos.y / 2) * 2;
-                    pos.z = Math.round(pos.z / 2) * 2;
-
-                    highlightBox.position.copy(pos);
-                    highlightBox.visible = true;
-                    break;
+                    if (intersects.length > 0) {
+                        const intersect = intersects[0];
+                        highlightBox.position.copy(intersect.object.position);
+                        highlightBox.visible = true;
+                    } else {
+                        highlightBox.visible = false;
+                    }
+                } else {
+                    highlightBox.visible = false;
                 }
-            }
-
-            renderer.render(scene, camera);
-        }
-
-        animate();
-    </script>
-    // Toggle camera view
-    if (e.key.toLowerCase() === 't') {
-    cameraView = (cameraView + 1) % 3;
-
-    // Show/hide player model based on view
-    playerModel.visible = cameraView !== 0;
-
-    // Update crosshair visibility
-    document.getElementById('crosshair').style.display = cameraView === 0 ? 'block' : 'none';
-    }
-
-    // Clear all blocks
-    if (e.key.toLowerCase() === 'c') {
-    if (confirm('Are you sure you want to clear all placed blocks? This cannot be undone.')) {
-    clearAllBlocks();
-    }
-    }
-
-    // Interact with portal
-    if (e.key.toLowerCase() === 'e' && nearPortal) {
-    alert('🎮 Connecting to Minecraft Server...\n\nIn a real implementation, this would:\n• Connect to the actual
-    Minecraft server\n• Transfer player data\n• Launch the game client');
-    }
-    });
-
-    document.addEventListener('keyup', (e) => {
-    keys[e.key.toLowerCase()] = false;
-    });
-
-    // Mouse click for block placement/removal
-    document.addEventListener('mousedown', (e) => {
-    if (!isPointerLocked) return;
-
-    e.preventDefault();
-
-    // Raycast from camera
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    const allBlocks = [...scene.children].filter(obj =>
-    obj.geometry instanceof THREE.BoxGeometry &&
-    obj !== highlightBox &&
-    !obj.userData.isPortal &&
-    !playerModel.children.includes(obj)
-    );
-    const intersects = raycaster.intersectObjects(allBlocks);
-
-    if (intersects.length > 0) {
-    const intersect = intersects[0];
-
-    // Left click - Place block
-    if (e.button === 0) {
-    // Calculate position for new block
-    const normal = intersect.face.normal;
-    const newPos = intersect.object.position.clone()
-    .add(normal.multiplyScalar(blockSize));
-
-    // Snap to grid
-    newPos.x = Math.round(newPos.x / blockSize) * blockSize;
-    newPos.y = Math.round(newPos.y / blockSize) * blockSize;
-    newPos.z = Math.round(newPos.z / blockSize) * blockSize;
-
-    // Check if position is already occupied
-    const occupied = placedBlocks.some(block =>
-    block.position.distanceTo(newPos) < 0.1 ); // Don't place block where player is standing const
-        playerDist=camera.position.distanceTo(newPos); if (!occupied && playerDist> 2) {
-        const newBlock = new THREE.Mesh(
-        new THREE.BoxGeometry(blockSize, blockSize, blockSize),
-        blockMaterials[selectedBlockType]
-        );
-        newBlock.position.copy(newPos);
-        newBlock.castShadow = true;
-        newBlock.receiveShadow = true;
-        newBlock.userData.isPlacedBlock = true;
-        newBlock.userData.blockType = selectedBlockType;
-        scene.add(newBlock);
-        placedBlocks.push(newBlock);
-
-        // Auto-save after placing block
-        saveBlocks();
-        }
-        }
-
-        // Right click - Remove block (only placed blocks)
-        if (e.button === 2 && intersect.object.userData.isPlacedBlock) {
-        scene.remove(intersect.object);
-        const index = placedBlocks.indexOf(intersect.object);
-        if (index > -1) {
-        placedBlocks.splice(index, 1);
-        }
-
-        // Auto-save after removing block
-        saveBlocks();
-        }
-        }
-        });
-
-        // Prevent context menu on right click
-        document.addEventListener('contextmenu', (e) => {
-        if (isPointerLocked) e.preventDefault();
-        });
-
-        // Check if near portal
-        let nearPortal = false;
-
-        function checkPortalProximity() {
-        const distance = camera.position.distanceTo(portal.position);
-        nearPortal = distance < 8; document.getElementById('interaction-prompt').style.display=nearPortal ? 'block'
-            : 'none' ; } // Block collision detection function checkBlockCollision(newPos) { const playerRadius=0.5;
-            const playerHeight=1.8; for (const block of placedBlocks) { const blockPos=block.position; const
-            dx=Math.abs(newPos.x - blockPos.x); const dy=Math.abs(newPos.y - blockPos.y); const dz=Math.abs(newPos.z -
-            blockPos.z); // Check horizontal collision if (dx < blockSize / 2 + playerRadius && dz < blockSize / 2 +
-            playerRadius && dy < blockSize / 2 + playerHeight / 2) { return block; } } return null; } // Check if player
-            can stand on block function checkGroundBlocks() { const feetPos=camera.position.clone(); feetPos.y -=1.8; //
-            Player height for (const block of placedBlocks) { const blockTop=block.position.y + blockSize / 2; const
-            distXZ=Math.sqrt( Math.pow(feetPos.x - block.position.x, 2) + Math.pow(feetPos.z - block.position.z, 2) );
-            if (distXZ < blockSize / 2 + 0.3 && Math.abs(feetPos.y - blockTop) < 0.3) { return blockTop; } } return
-            null; } // Update camera position based on view mode function updateCameraView(playerPos, yaw) { if
-            (cameraView===0) { // First-person view camera.position.copy(playerPos); } else if (cameraView===1) { //
-            Third-person back view const offset=new THREE.Vector3( Math.sin(yaw) * cameraDistance, 2, Math.cos(yaw) *
-            cameraDistance ); camera.position.copy(playerPos).add(offset); camera.lookAt(playerPos.x, playerPos.y,
-            playerPos.z); } else if (cameraView===2) { // Third-person front view const offset=new THREE.Vector3(
-            -Math.sin(yaw) * cameraDistance, 2, -Math.cos(yaw) * cameraDistance );
-            camera.position.copy(playerPos).add(offset); camera.lookAt(playerPos.x, playerPos.y, playerPos.z); } //
-            Update player model position and rotation playerModel.position.set(playerPos.x, playerPos.y - 1.8,
-            playerPos.z); playerModel.rotation.y=yaw; } // Store player position for camera tracking let
-            playerPosition=new THREE.Vector3(0, 3, 15); // Animation loop function animate() {
-            requestAnimationFrame(animate); if (isPointerLocked) { // Movement const moveX=(keys['d'] ? 1 : 0) -
-            (keys['a'] ? 1 : 0); const moveZ=(keys['s'] ? 1 : 0) - (keys['w'] ? 1 : 0); if (moveX !==0 || moveZ !==0) {
-            const angle=yaw + Math.atan2(moveX, moveZ); velocity.x=Math.sin(angle) * moveSpeed;
-            velocity.z=Math.cos(angle) * moveSpeed; } else { velocity.x *=0.8; velocity.z *=0.8; } // Gravity if
-            (!isGrounded) { velocity.y -=0.02; } // Calculate new position based on camera view let movePos; if
-            (cameraView===0) { movePos=camera.position.clone(); } else { movePos=playerPosition.clone(); } movePos.x
-            +=velocity.x; movePos.z +=velocity.z; // Check collision with placed blocks (horizontal) const
-            collision=checkBlockCollision(movePos); if (!collision) { if (cameraView===0) { camera.position.x=movePos.x;
-            camera.position.z=movePos.z; } else { playerPosition.x=movePos.x; playerPosition.z=movePos.z; } } else {
-            velocity.x=0; velocity.z=0; } if (cameraView===0) { camera.position.y +=velocity.y;
-            playerPosition.copy(camera.position); } else { playerPosition.y +=velocity.y; } // Check if standing on a
-            placed block const groundBlock=checkGroundBlocks(); if (groundBlock !==null && velocity.y <=0) { const
-            newY=groundBlock + 1.8; if (cameraView===0) { camera.position.y=newY; } else { playerPosition.y=newY; }
-            velocity.y=0; isGrounded=true; } else if ((cameraView===0 ? camera.position.y : playerPosition.y) <=3) { //
-            Ground collision if (cameraView===0) { camera.position.y=3; } else { playerPosition.y=3; } velocity.y=0;
-            isGrounded=true; } else if (velocity.y < 0) { isGrounded=false; } // No horizontal boundary - free roam! //
-            Optional: Add a soft boundary warning instead const warnDistance=100; const distFromCenter=Math.sqrt(
-            playerPosition.x * playerPosition.x + playerPosition.z * playerPosition.z ); // Update coordinates display
-            const displayPos=cameraView===0 ? camera.position : playerPosition;
-            document.getElementById('coord-x').textContent=Math.round(displayPos.x);
-            document.getElementById('coord-y').textContent=Math.round(displayPos.y);
-            document.getElementById('coord-z').textContent=Math.round(displayPos.z); // Update camera view
-            updateCameraView(playerPosition, yaw); checkPortalProximity(); // Highlight block for placement (only in
-            first-person) if (cameraView===0) { raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); const
-            allBlocks=[...scene.children].filter(obj=>
-            obj.geometry instanceof THREE.BoxGeometry &&
-            obj !== highlightBox &&
-            !obj.userData.isPortal &&
-            !playerModel.children.includes(obj)
-            );
-            const intersects = raycaster.intersectObjects(allBlocks);
-
-            if (intersects.length > 0) {
-            const intersect = intersects[0];
-            highlightBox.position.copy(intersect.object.position);
-            highlightBox.visible = true;
-            } else {
-            highlightBox.visible = false;
-            }
-            } else {
-            highlightBox.visible = false;
-            }
             }
 
             // Animate portal
@@ -1368,24 +1116,24 @@
             portal.material.transparent = true;
 
             renderer.render(scene, camera);
-            }
+        }
 
-            // Window resize
-            window.addEventListener('resize', () => {
+        // Window resize
+        window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            });
+        });
 
-            // Simulate player count updates
-            setInterval(() => {
+        // Simulate player count updates
+        setInterval(() => {
             const count = Math.floor(Math.random() * 20) + 80;
             document.getElementById('player-count').textContent = count + '/100';
             document.getElementById('ping').textContent = (Math.floor(Math.random() * 30) + 30) + 'ms';
-            }, 5000);
+        }, 5000);
 
-            animate();
-            </script>
+        animate();
+    </script>
 </body>
 
 </html>
