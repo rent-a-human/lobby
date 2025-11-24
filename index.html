@@ -344,7 +344,11 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        const socket = io();
+        // Use production URL if on GitHub Pages, otherwise localhost
+        const BACKEND_URL = window.location.hostname.includes('github.io')
+            ? 'https://lobby-backend-285d24d0f147.herokuapp.com' // Replace with your actual backend URL
+            : 'https://lobby-backend-285d24d0f147.herokuapp.com';
+        const socket = io(BACKEND_URL);
 
         // Scene setup
         const scene = new THREE.Scene();
