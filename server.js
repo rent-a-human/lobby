@@ -16,7 +16,6 @@ const io = new Server(server, {
 app.use(express.static(__dirname));
 
 // Game state
-// Game state
 const players = {};
 const messageHistory = []; // Store last 10 messages
 const initialBlocks = [];
@@ -101,6 +100,10 @@ io.on('connection', async (socket) => {
         'INSERT INTO blocks (x, y, z, type) VALUES ($1, $2, $3, $4)',
         [x, y, z, type]
       );
+      
+      // Update in-memory state
+      initialBlocks.push({ x, y, z, type });
+
       // Broadcast to others
       socket.broadcast.emit('blockPlaced', data);
       // Acknowledge success to sender
@@ -156,6 +159,17 @@ io.on('connection', async (socket) => {
         'DELETE FROM blocks WHERE x = $1 AND y = $2 AND z = $3',
         [x, y, z]
       );
+      
+      // Update in-memory state
+      const index = initialBlocks.findIndex(b => 
+        Math.abs(b.x - x) < 0.001 && 
+        Math.abs(b.y - y) < 0.001 && 
+        Math.abs(b.z - z) < 0.001
+      );
+      if (index !== -1) {
+        initialBlocks.splice(index, 1);
+      }
+
       // Broadcast to others
       socket.broadcast.emit('blockRemoved', data);
     } catch (err) {
