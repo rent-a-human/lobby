@@ -16,7 +16,42 @@ const io = new Server(server, {
 app.use(express.static(__dirname));
 
 // Game state
+// Game state
 const players = {};
+const messageHistory = []; // Store last 10 messages
+const initialBlocks = [];
+
+// Load initial state from DB
+(async () => {
+  try {
+    const res = await db.query('SELECT * FROM blocks');
+    res.rows.forEach(row => {
+      initialBlocks.push({
+        x: row.x,
+        y: row.y,
+        z: row.z,
+        type: row.type
+      });
+    });
+    console.log(`Loaded ${initialBlocks.length} blocks from DB`);
+
+    // Load last 10 messages
+    const msgRes = await db.query('SELECT * FROM messages ORDER BY created_at DESC LIMIT 10');
+    // Reverse to show oldest first in the list
+    msgRes.rows.reverse().forEach(row => {
+      messageHistory.push({
+        id: row.id,
+        text: row.text,
+        author: row.author,
+        timestamp: row.created_at
+      });
+    });
+    console.log(`Loaded ${messageHistory.length} messages from DB`);
+
+  } catch (err) {
+    console.error('Error loading initial state:', err);
+  }
+})();
 
 io.on('connection', async (socket) => {
   console.log('A user connected:', socket.id);
@@ -42,13 +77,8 @@ io.on('connection', async (socket) => {
     // Send existing players to new player
     socket.emit('currentPlayers', players);
 
-    // Load blocks from DB and send to player
-    db.query('SELECT * FROM blocks')
-      .then(res => socket.emit('initialBlocks', res.rows))
-      .catch(err => {
-        console.error('Error loading blocks:', err);
-        socket.emit('initialBlocks', []);
-      });
+    // Send initial blocks to new player
+    socket.emit('initialBlocks', initialBlocks);
 
     socket.broadcast.emit('newPlayer', { id: socket.id, ...players[socket.id] });
   });
@@ -73,8 +103,11 @@ io.on('connection', async (socket) => {
       );
       // Broadcast to others
       socket.broadcast.emit('blockPlaced', data);
+      // Acknowledge success to sender
+      socket.emit('blockSaveSuccess', { x, y, z });
     } catch (err) {
       console.error('Error saving block:', err);
+      socket.emit('blockSaveError', err.message);
     }
   });
 
@@ -82,6 +115,35 @@ io.on('connection', async (socket) => {
   socket.on('ping', () => {
     socket.emit('pong');
   });
+
+  // Chat/Message Board
+  socket.on('chatMessage', async (msg) => {
+    const messageData = {
+      id: Date.now(),
+      text: msg.text,
+      author: msg.author || 'Anonymous',
+      timestamp: new Date().toISOString()
+    };
+    
+    // Store in history (keep last 10 in memory)
+    messageHistory.push(messageData);
+    if (messageHistory.length > 10) messageHistory.shift();
+    
+    io.emit('chatUpdate', messageHistory);
+
+    // Persist to DB
+    try {
+      await db.query(
+        'INSERT INTO messages (text, author) VALUES ($1, $2)',
+        [messageData.text, messageData.author]
+      );
+    } catch (err) {
+      console.error('Error saving message:', err);
+    }
+  });
+
+  // Send history on connect
+  socket.emit('chatUpdate', messageHistory);
 
   // Handle block removal
   socket.on('blockRemove', async (data) => {

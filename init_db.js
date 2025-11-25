@@ -35,8 +35,17 @@ async function init() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        text TEXT NOT NULL,
+        author VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     
-    console.log('Table "blocks" is ready.');
+    console.log('Tables "blocks" and "messages" are ready.');
     process.exit(0);
   } catch (err) {
     console.error('Error initializing database:', err);
