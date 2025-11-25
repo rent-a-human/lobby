@@ -311,16 +311,51 @@
 
         #mobile-actions {
             position: absolute;
-            bottom: 50px;
-            right: 50px;
+            bottom: 180px;
+            /* Moved up to make room for right joystick */
+            right: 30px;
             display: flex;
             gap: 20px;
             pointer-events: auto;
         }
 
+        #look-joystick-zone {
+            position: absolute;
+            bottom: 50px;
+            right: 50px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+        }
+
+        #look-joystick-base {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+        }
+
+        #look-joystick-knob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            transition: transform 0.1s;
+        }
+
         .mobile-btn {
-            width: 80px;
-            height: 80px;
+            width: 60px;
+            /* Smaller buttons */
+            height: 60px;
             background: rgba(255, 255, 255, 0.2);
             border: 2px solid rgba(255, 255, 255, 0.4);
             border-radius: 50%;
@@ -460,6 +495,10 @@
             <div id="mobile-actions">
                 <div id="jump-btn" class="mobile-btn">JUMP</div>
                 <div id="action-btn" class="mobile-btn">PLACE</div>
+            </div>
+            <div id="look-joystick-zone">
+                <div id="look-joystick-base"></div>
+                <div id="look-joystick-knob"></div>
             </div>
         </div>
     </div>
@@ -1264,7 +1303,19 @@
             requestAnimationFrame(animate);
 
             // Movement logic
-            if (isPointerLocked) {
+            if (isPointerLocked || (isJoined && isTouchDevice)) {
+
+                // Apply look vector (Mobile)
+                if (isTouchDevice) {
+                    const lookSpeed = 0.05;
+                    yaw -= lookVector.x * lookSpeed;
+                    pitch -= lookVector.y * lookSpeed;
+                    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+
+                    camera.rotation.y = yaw;
+                    camera.rotation.x = pitch;
+                }
+
                 const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
                 const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
 
@@ -1606,12 +1657,13 @@
         const controlsInfo = document.getElementById('controls');
 
         let joystickVector = { x: 0, y: 0 };
+        let lookVector = { x: 0, y: 0 };
 
         if (isTouchDevice) {
             mobileControls.style.display = 'block';
             controlsInfo.style.display = 'none'; // Hide keyboard instructions
 
-            // Joystick Logic
+            // Left Joystick (Move)
             const joystickRadius = 60; // Half of base width
             const knobRadius = 25;
             let joystickCenter = { x: 0, y: 0 };
@@ -1657,6 +1709,53 @@
             function resetJoystick() {
                 joystickKnob.style.transform = 'translate(-50%, -50%)';
                 joystickVector = { x: 0, y: 0 };
+            }
+
+            // Right Joystick (Look)
+            const lookZone = document.getElementById('look-joystick-zone');
+            const lookKnob = document.getElementById('look-joystick-knob');
+            let lookCenter = { x: 0, y: 0 };
+
+            lookZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect = lookZone.getBoundingClientRect();
+                lookCenter = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                updateLookJoystick(touch);
+            }, { passive: false });
+
+            lookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                updateLookJoystick(touch);
+            }, { passive: false });
+
+            lookZone.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                resetLookJoystick();
+            }, { passive: false });
+
+            function updateLookJoystick(touch) {
+                const dx = touch.clientX - lookCenter.x;
+                const dy = touch.clientY - lookCenter.y;
+                const distance = Math.min(Math.sqrt(dx * dx + dy * dy), joystickRadius);
+                const angle = Math.atan2(dy, dx);
+
+                const knobX = Math.cos(angle) * distance;
+                const knobY = Math.sin(angle) * distance;
+
+                lookKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+
+                lookVector.x = knobX / joystickRadius;
+                lookVector.y = knobY / joystickRadius;
+            }
+
+            function resetLookJoystick() {
+                lookKnob.style.transform = 'translate(-50%, -50%)';
+                lookVector = { x: 0, y: 0 };
             }
 
             // Jump Button
