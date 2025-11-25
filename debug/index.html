@@ -262,6 +262,81 @@
             /* Newest at bottom visually if we append? No, usually top. Let's stick to standard. */
             z-index: 1000;
         }
+
+        /* Mobile Controls */
+        #mobile-controls {
+            display: none;
+            /* Hidden by default, shown via JS if touch detected */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2000;
+        }
+
+        #joystick-zone {
+            position: absolute;
+            bottom: 50px;
+            left: 50px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+        }
+
+        #joystick-base {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+        }
+
+        #joystick-knob {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            transition: transform 0.1s;
+        }
+
+        #mobile-actions {
+            position: absolute;
+            bottom: 50px;
+            right: 50px;
+            display: flex;
+            gap: 20px;
+            pointer-events: auto;
+        }
+
+        .mobile-btn {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .mobile-btn:active {
+            background: rgba(255, 255, 255, 0.4);
+        }
     </style>
 </head>
 
@@ -375,6 +450,17 @@
             <input type="text" id="message-input" maxlength="30" placeholder="Type your message..."
                 style="padding: 10px; font-size: 16px; width: 250px;">
             <div style="margin-top: 10px; font-size: 12px; color: #aaa;">Press ENTER to send, ESC to cancel</div>
+        </div>
+
+        <div id="mobile-controls">
+            <div id="joystick-zone">
+                <div id="joystick-base"></div>
+                <div id="joystick-knob"></div>
+            </div>
+            <div id="mobile-actions">
+                <div id="jump-btn" class="mobile-btn">JUMP</div>
+                <div id="action-btn" class="mobile-btn">PLACE</div>
+            </div>
         </div>
     </div>
 
@@ -1189,6 +1275,12 @@
                 if (keys['d']) moveDir.add(right);
                 if (keys['a']) moveDir.sub(right);
 
+                // Joystick Input
+                if (joystickVector.y < -0.1) moveDir.add(forward.clone().multiplyScalar(-joystickVector.y));
+                if (joystickVector.y > 0.1) moveDir.sub(forward.clone().multiplyScalar(joystickVector.y));
+                if (joystickVector.x > 0.1) moveDir.add(right.clone().multiplyScalar(joystickVector.x));
+                if (joystickVector.x < -0.1) moveDir.sub(right.clone().multiplyScalar(-joystickVector.x));
+
                 if (moveDir.length() > 0) {
                     moveDir.normalize().multiplyScalar(moveSpeed);
                     velocity.x = moveDir.x;
@@ -1503,6 +1595,92 @@
 
         // Initialize
         document.getElementById('debug-log').style.display = 'none'; // Start hidden
+
+        // Mobile Controls Logic
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const mobileControls = document.getElementById('mobile-controls');
+        const joystickZone = document.getElementById('joystick-zone');
+        const joystickKnob = document.getElementById('joystick-knob');
+        const jumpBtn = document.getElementById('jump-btn');
+        const actionBtn = document.getElementById('action-btn');
+        const controlsInfo = document.getElementById('controls');
+
+        let joystickVector = { x: 0, y: 0 };
+
+        if (isTouchDevice) {
+            mobileControls.style.display = 'block';
+            controlsInfo.style.display = 'none'; // Hide keyboard instructions
+
+            // Joystick Logic
+            const joystickRadius = 60; // Half of base width
+            const knobRadius = 25;
+            let joystickCenter = { x: 0, y: 0 };
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                const rect = joystickZone.getBoundingClientRect();
+                joystickCenter = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+                updateJoystick(touch);
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                updateJoystick(touch);
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                resetJoystick();
+            }, { passive: false });
+
+            function updateJoystick(touch) {
+                const dx = touch.clientX - joystickCenter.x;
+                const dy = touch.clientY - joystickCenter.y;
+                const distance = Math.min(Math.sqrt(dx * dx + dy * dy), joystickRadius);
+                const angle = Math.atan2(dy, dx);
+
+                const knobX = Math.cos(angle) * distance;
+                const knobY = Math.sin(angle) * distance;
+
+                joystickKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+
+                // Normalize vector (-1 to 1)
+                joystickVector.x = knobX / joystickRadius;
+                joystickVector.y = knobY / joystickRadius;
+            }
+
+            function resetJoystick() {
+                joystickKnob.style.transform = 'translate(-50%, -50%)';
+                joystickVector = { x: 0, y: 0 };
+            }
+
+            // Jump Button
+            jumpBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (isGrounded) {
+                    velocity.y = jumpSpeed;
+                    isGrounded = false;
+                }
+            }, { passive: false });
+
+            // Action Button (Place Block)
+            actionBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                // Simulate left click
+                const event = new MouseEvent('mousedown', {
+                    button: 0,
+                    bubbles: true,
+                    cancelable: true
+                });
+                document.dispatchEvent(event);
+            }, { passive: false });
+        }
+
         animate();
     </script>
 </body>
